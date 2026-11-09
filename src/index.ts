@@ -1,4 +1,4 @@
-export { fetchProspectAccess, importProspects, prospectingQueryKey, searchProspects } from './api'
+export { fetchProspectAccess, importProspects, prospectingQueryKey, queueProspectImport, searchProspects } from './api'
 export { ApiError, configureProspecting } from './http'
 export { ProspectingProvider } from './ProspectingProvider'
 export { ProspectSearch } from './ProspectSearch'

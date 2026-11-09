@@ -27,6 +27,16 @@ export async function searchProspects(filters: ProspectSearchFilters): Promise<P
   }
 }
 
+export function queueProspectImport(
+  filters: ProspectSearchFilters & { category_id?: number; channels?: Array<'email' | 'phone' | 'rest'> },
+): Promise<{ message: string }> {
+  const { request, paths } = getProspectingClient()
+  return request<{ message: string }>(paths.importFilters, {
+    method: 'POST',
+    body: filters,
+  })
+}
+
 export function importProspects(payload: {
   people: ProspectPerson[]
   category_id?: number

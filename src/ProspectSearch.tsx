@@ -2,12 +2,11 @@
 
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { fetchProspectAccess, importProspects, prospectingQueryKey, searchProspects } from './api'
+import { fetchProspectAccess, importProspects, prospectingQueryKey, queueProspectImport, searchProspects } from './api'
 import { InfoIcon, MailIcon, PhoneIcon, SearchIcon, SpinnerIcon, UploadIcon } from './icons'
 import type { ProspectImportResult, ProspectList, ProspectPerson, ProspectSearchFilters } from './types'
 
 const PAGE_SIZE = 25
-const MAX_SELECT_PAGES = 100
 
 const SENIORITIES = [
   { value: 'owner', label: 'Owner' },
@@ -33,6 +32,108 @@ export type ProspectListField = {
   creating: boolean
   onCreate: (name: string) => void
   options: Array<{ value: string; label: string }>
+}
+
+function ListSelect({
+  value,
+  onChange,
+  options,
+}: {
+  value: string
+  onChange: (value: string) => void
+  options: Array<{ value: string; label: string }>
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const selected = options.find((option) => option.value === value)
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+
+    function onPointerDown(event: MouseEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false)
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Lista"
+        onClick={() => setOpen((current) => !current)}
+        className={`${fieldClass} flex items-center justify-between gap-2 text-left`}
+      >
+        <span className="truncate text-[var(--text)]">{selected?.label ?? 'Sin lista'}</span>
+        <svg
+          className={`h-4 w-4 shrink-0 text-[var(--muted)] transition ${open ? 'rotate-180' : ''}`}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          aria-hidden
+        >
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <ul
+          role="listbox"
+          className="absolute z-50 mt-2 max-h-56 w-full overflow-auto rounded-2xl border border-[var(--border)] bg-[var(--surface-solid)] p-1 shadow-[var(--shadow)]"
+        >
+          {options.map((option) => {
+            const active = option.value === value
+
+            return (
+              <li key={option.value || 'none'}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => {
+                    onChange(option.value)
+                    setOpen(false)
+                  }}
+                  className={[
+                    'flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm',
+                    active
+                      ? 'bg-[var(--accent-soft)] font-medium text-[var(--accent-strong)]'
+                      : 'text-[var(--text)] hover:bg-[var(--chip)]',
+                  ].join(' ')}
+                >
+                  <span className="truncate">{option.label}</span>
+                  {active && (
+                    <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
+                      <path d="M5 12l5 5L20 7" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 function splitList(value: string): string[] {
@@ -92,6 +193,62 @@ function personHasEmail(person: ProspectPerson): boolean {
     }
   }
   return false
+}
+
+function serverChannels(
+  email: boolean,
+  phone: boolean,
+  rest: boolean,
+): Array<'email' | 'phone' | 'rest'> | undefined {
+  if ((email && phone && rest) || (!email && !phone && !rest)) {
+    return undefined
+  }
+  const channels: Array<'email' | 'phone' | 'rest'> = []
+  if (email) {
+    channels.push('email')
+  }
+  if (phone) {
+    channels.push('phone')
+  }
+  if (rest) {
+    channels.push('rest')
+  }
+  return channels
+}
+
+function channelNotice(email: boolean, phone: boolean, rest: boolean): string | null {
+  if (!email && !phone && !rest) {
+    return null
+  }
+  if (email && phone && rest) {
+    return 'Toda la búsqueda se importa en el servidor. Podés cerrar la página después de confirmar.'
+  }
+  if (email && phone) {
+    return 'Se importan en el servidor las personas con email o teléfono. Podés cerrar la página después de confirmar.'
+  }
+  if (email) {
+    return 'Se importan en el servidor las personas con email. Podés cerrar la página después de confirmar.'
+  }
+  if (phone) {
+    return 'Se importan en el servidor las personas con teléfono. Podés cerrar la página después de confirmar.'
+  }
+  return 'Se importan en el servidor las personas sin email ni teléfono. Podés cerrar la página después de confirmar.'
+}
+
+function channelSummary(email: boolean, phone: boolean, rest: boolean): string {
+  if (email && phone && rest) {
+    return 'Toda la búsqueda, en el servidor'
+  }
+  if (email && phone) {
+    return 'Con email o teléfono, en el servidor'
+  }
+  if (email) {
+    return 'Con email, en el servidor'
+  }
+  if (phone) {
+    return 'Con teléfono, en el servidor'
+  }
+  return 'Sin email ni teléfono, en el servidor'
 }
 
 function personHasPhone(person: ProspectPerson): boolean {
@@ -203,8 +360,6 @@ export function ProspectSearch({
   const [selectEmail, setSelectEmail] = useState(false)
   const [selectPhone, setSelectPhone] = useState(false)
   const [selectRest, setSelectRest] = useState(false)
-  const [selecting, setSelecting] = useState(false)
-  const rosterRef = useRef<ProspectPerson[] | null>(null)
   const [appliedFilters, setAppliedFilters] = useState<ProspectSearchFilters | null>(null)
   const mounted = useRef(true)
   const creditsReady = useRef(false)
@@ -273,13 +428,33 @@ export function ProspectSearch({
         setSelectEmail(false)
         setSelectPhone(false)
         setSelectRest(false)
-        rosterRef.current = null
+        setNotice(null)
       }
       setSearched(true)
       setError(null)
     },
     onError: (caught) => {
       setError(errorText(caught, 'No se pudo buscar.'))
+    },
+  })
+
+  const queue = useMutation({
+    mutationFn: () =>
+      queueProspectImport({
+        ...(appliedFilters ?? {}),
+        category_id: categoryId ? Number(categoryId) : undefined,
+        channels: serverChannels(selectEmail, selectPhone, selectRest),
+      }),
+    onSuccess: (result) => {
+      setNotice(result.message)
+      setPicked({})
+      setSelectEmail(false)
+      setSelectPhone(false)
+      setSelectRest(false)
+      setError(null)
+    },
+    onError: (caught) => {
+      setError(errorText(caught, 'No se pudo encolar la importación.'))
     },
   })
 
@@ -292,7 +467,6 @@ export function ProspectSearch({
       setSelectEmail(false)
       setSelectPhone(false)
       setSelectRest(false)
-      rosterRef.current = null
       const imported = result.imported.length
       const withoutEmail = result.imported.filter((person) => !person.email).length
       const parts = [
@@ -320,7 +494,7 @@ export function ProspectSearch({
     },
   })
 
-  const pending = search.isPending || upload.isPending || selecting
+  const pending = search.isPending || upload.isPending || queue.isPending
   useEffect(() => {
     mounted.current = true
     return () => {
@@ -358,71 +532,23 @@ export function ProspectSearch({
   const selectedCount = selectedPeople.length
   const selectedEmailCount = selectedPeople.filter((person) => personHasEmail(person)).length
   const selectedPhoneCount = selectedPeople.filter((person) => personHasPhone(person)).length
-  const selectionSubtitle = [
-    selectedCount === 0 ? 'Nada seleccionado' : selectedCount === 1 ? '1 seleccionado' : `${selectedCount} seleccionados`,
-    selectedEmailCount === 0 ? null : selectedEmailCount === 1 ? '1 con email' : `${selectedEmailCount} con email`,
-    selectedPhoneCount === 0 ? null : selectedPhoneCount === 1 ? '1 con teléfono' : `${selectedPhoneCount} con teléfono`,
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  const selectAllChannels = selectEmail && selectPhone && selectRest
+  const bulkImport = selectEmail || selectPhone || selectRest
+  const selectionSubtitle = bulkImport
+    ? channelSummary(selectEmail, selectPhone, selectRest)
+    : [
+        selectedCount === 0 ? 'Nada seleccionado' : selectedCount === 1 ? '1 seleccionado' : `${selectedCount} seleccionados`,
+        selectedEmailCount === 0 ? null : selectedEmailCount === 1 ? '1 con email' : `${selectedEmailCount} con email`,
+        selectedPhoneCount === 0 ? null : selectedPhoneCount === 1 ? '1 con teléfono' : `${selectedPhoneCount} con teléfono`,
+      ]
+        .filter(Boolean)
+        .join(' · ')
 
-  function pickMatching(roster: ProspectPerson[], email: boolean, phone: boolean, rest: boolean) {
-    const next: Record<string, ProspectPerson> = {}
-    for (const person of roster) {
-      const hasEmail = personHasEmail(person)
-      const hasPhone = personHasPhone(person)
-      const match =
-        (email && hasEmail) || (phone && hasPhone) || (rest && !hasEmail && !hasPhone)
-      if (match) {
-        next[person.id] = person
-      }
-    }
-    return next
-  }
-
-  async function ensureRoster(): Promise<ProspectPerson[] | null> {
-    if (rosterRef.current) {
-      return rosterRef.current
-    }
-    const source = appliedFilters
-    if (!source) {
-      return null
-    }
-    const collected: ProspectPerson[] = []
-    let totalEntries = total
-    const pageCount = Math.min(MAX_SELECT_PAGES, Math.max(1, Math.ceil(totalEntries / PAGE_SIZE)))
-    for (let current = 1; current <= pageCount; current += 1) {
-      if (!mounted.current) {
-        return null
-      }
-      const result =
-        current === page
-          ? { people, total_entries: totalEntries, credits: creditsLeft }
-          : await searchProspects({ ...source, page: current })
-      totalEntries = result.total_entries
-      setCreditsLeft(result.credits)
-      collected.push(...result.people)
-      if (current * PAGE_SIZE >= totalEntries) {
-        break
-      }
-    }
-    if (!mounted.current) {
-      return null
-    }
-    rosterRef.current = collected
-    if (pageCount >= MAX_SELECT_PAGES && pageCount * PAGE_SIZE < totalEntries) {
-      setNotice(`Se seleccionaron las primeras ${pageCount} páginas.`)
-    }
-    return collected
-  }
-
-  async function toggleChannel(channel: 'all' | 'email' | 'phone') {
+  function toggleChannel(channel: 'all' | 'email' | 'phone') {
     let email = selectEmail
     let phone = selectPhone
     let rest = selectRest
     if (channel === 'all') {
-      const next = !selectAllChannels
+      const next = !(email && phone && rest)
       email = next
       phone = next
       rest = next
@@ -440,27 +566,8 @@ export function ProspectSearch({
     setSelectEmail(email)
     setSelectPhone(phone)
     setSelectRest(rest)
-    if (!email && !phone && !rest) {
-      setPicked({})
-      return
-    }
-    setSelecting(true)
-    setError(null)
-    try {
-      const roster = await ensureRoster()
-      if (!mounted.current || !roster) {
-        return
-      }
-      setPicked(pickMatching(roster, email, phone, rest))
-    } catch (caught) {
-      if (mounted.current) {
-        setError(errorText(caught, 'No se pudo seleccionar.'))
-      }
-    } finally {
-      if (mounted.current) {
-        setSelecting(false)
-      }
-    }
+    setPicked({})
+    setNotice(channelNotice(email, phone, rest))
   }
 
   return (
@@ -470,12 +577,18 @@ export function ProspectSearch({
           <h1 className="font-display text-3xl font-semibold">Prospecting</h1>
           <button
             type="button"
-            disabled={selectedCount < 1 || pending}
-            onClick={() => upload.mutate()}
+            disabled={pending || (bulkImport ? !appliedFilters : selectedCount < 1)}
+            onClick={() => {
+              if (bulkImport) {
+                queue.mutate()
+                return
+              }
+              upload.mutate()
+            }}
             className="inline-flex items-center gap-1.5 rounded-2xl bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[var(--accent-strong)] disabled:opacity-60"
           >
-            {upload.isPending ? <SpinnerIcon className="h-4 w-4" /> : <UploadIcon className="h-4 w-4" />}
-            Importar
+            {upload.isPending || queue.isPending ? <SpinnerIcon className="h-4 w-4" /> : <UploadIcon className="h-4 w-4" />}
+            {bulkImport ? 'Importar búsqueda' : 'Importar'}
           </button>
         </div>
         <p className="mt-1 text-[var(--muted)]">{description}</p>
@@ -566,18 +679,7 @@ export function ProspectSearch({
                     {renderList ? (
                       renderList(listField)
                     ) : (
-                      <select
-                        aria-label="Lista"
-                        value={categoryId}
-                        onChange={(event) => setCategoryId(event.target.value)}
-                        className={fieldClass}
-                      >
-                        {listField.options.map((option) => (
-                          <option key={option.value || 'none'} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                      <ListSelect value={categoryId} onChange={setCategoryId} options={listField.options} />
                     )}
                   </div>
                 )}
@@ -607,7 +709,7 @@ export function ProspectSearch({
                         {people.length > 0 &&
                           (
                             [
-                              ['all', 'Todos', selectAllChannels],
+                              ['all', 'Todos', selectEmail && selectPhone && selectRest],
                               ['email', 'Email', selectEmail],
                               ['phone', 'Teléfono', selectPhone],
                             ] as const
