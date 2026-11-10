@@ -224,7 +224,7 @@ function channelNotice(email: boolean, phone: boolean, rest: boolean): string | 
     return 'Toda la búsqueda se importa en el servidor. Podés cerrar la página después de confirmar.'
   }
   if (email && phone) {
-    return 'Se importan en el servidor las personas con email o teléfono. Podés cerrar la página después de confirmar.'
+    return 'Se importan en el servidor las personas con email, con teléfono o con ambos. Podés cerrar la página después de confirmar.'
   }
   if (email) {
     return 'Se importan en el servidor las personas con email. Podés cerrar la página después de confirmar.'
@@ -240,7 +240,7 @@ function channelSummary(email: boolean, phone: boolean, rest: boolean): string {
     return 'Toda la búsqueda, en el servidor'
   }
   if (email && phone) {
-    return 'Con email o teléfono, en el servidor'
+    return 'Con email, teléfono o ambos, en el servidor'
   }
   if (email) {
     return 'Con email, en el servidor'
